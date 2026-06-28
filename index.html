@@ -7,12 +7,19 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
-    width: 100%; height: 100%;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
     background: #000;
     overflow: hidden;
     touch-action: none;
   }
-  canvas { display: block; }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+  }
 </style>
 </head>
 <body>
@@ -27,52 +34,52 @@ const COLOR  = '#ff5ca8';
 function heartX(t) { return 16 * Math.pow(Math.sin(t), 3); }
 function heartY(t) { return 13*Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t); }
 
+// Exact raw bounding box (pre-calculated)
+// rawX: -16 to +16  → rawW = 32
+// rawY: -8.6588 to +12.3176  → rawH = 20.9764
+// rawCX = 0, rawCY = (12.3176 + (-8.6588)) / 2 = 1.8294
+const RAW_X_MIN = -16;
+const RAW_X_MAX =  16;
+const RAW_Y_MIN = -8.6588;
+const RAW_Y_MAX =  12.3176;
+const RAW_CX    = 0;
+const RAW_CY    = (RAW_Y_MAX + RAW_Y_MIN) / 2; // 1.8294
+
 let slots    = [];
 let revealed = 0;
 let lastTime = 0;
 let animId   = null;
 const INTERVAL_MS = 80;
 
-function buildSlots() {
+function buildSlots(W, H) {
   slots = [];
 
-  // Use CSS pixels (already scaled by dpr above)
-  const W = canvas.width   / (window.devicePixelRatio || 1);
-  const H = canvas.height  / (window.devicePixelRatio || 1);
+  const FONT_SIZE = 11;
+  const font = `${FONT_SIZE}px 'Courier New', monospace`;
 
-  // Find exact raw bounding box of the heart curve
-  let rawXMin=Infinity, rawXMax=-Infinity, rawYMin=Infinity, rawYMax=-Infinity;
-  const SURVEY = 4000;
-  for (let i = 0; i < SURVEY; i++) {
-    const t = (i / SURVEY) * 2 * Math.PI;
-    const x = heartX(t), y = heartY(t);
-    if (x < rawXMin) rawXMin = x;
-    if (x > rawXMax) rawXMax = x;
-    if (y < rawYMin) rawYMin = y;
-    if (y > rawYMax) rawYMax = y;
-  }
-  const rawW = rawXMax - rawXMin; // ≈ 32
-  const rawH = rawYMax - rawYMin; // ≈ 20.8
-
-  // Font size fixed small — like reference
-  const fontSize = 11;
-  const font = `${fontSize}px 'Courier New', monospace`;
   ctx.font = font;
-  const pw = ctx.measureText(PHRASE).width;
-  const ph = fontSize * 1.4;
+  const pw = ctx.measureText(PHRASE).width; // ~66px at 11px
+  const ph = FONT_SIZE * 1.5;
 
-  // Scale so heart fits with padding on all sides
-  const padding = pw * 0.6; // at least half a phrase width of breathing room
-  const scaleX = (W - padding * 2) / rawW;
-  const scaleY = (H - ph * 4)      / rawH;
-  const scale  = Math.min(scaleX, scaleY);
+  // Margins: enough so text at the very edge doesn't clip
+  const marginX = pw / 2 + 4;
+  const marginY = ph / 2 + 4;
 
-  // Center the heart exactly
-  const cx = W / 2 - ((rawXMin + rawXMax) / 2) * scale;
-  const cy = H / 2 + ((rawYMin + rawYMax) / 2) * scale;
+  const availW = W - marginX * 2;
+  const availH = H - marginY * 2;
 
-  // Collision boxes
-  const hw = pw / 2 + 2;
+  // Scale to fit heart entirely inside available area
+  const rawW = RAW_X_MAX - RAW_X_MIN; // 32
+  const rawH = RAW_Y_MAX - RAW_Y_MIN; // ~20.98
+
+  const scale = Math.min(availW / rawW, availH / rawH);
+
+  // Screen center maps to raw center of heart
+  const cx = W / 2 - RAW_CX * scale;         // = W/2 (since RAW_CX=0)
+  const cy = H / 2 + RAW_CY * scale;         // shift down by raw center offset
+
+  // Collision detection
+  const hw = pw / 2 + 1;
   const hh = ph / 2 + 1;
   const placed = [];
 
@@ -84,11 +91,15 @@ function buildSlots() {
     return false;
   }
 
-  const FINE = 10000;
+  const FINE = 12000;
   for (let i = 0; i < FINE; i++) {
     const t  = (i / FINE) * 2 * Math.PI;
     const sx = cx + heartX(t) * scale;
     const sy = cy - heartY(t) * scale;
+
+    // Safety: never place outside canvas
+    if (sx - pw/2 < 0 || sx + pw/2 > W) continue;
+    if (sy - ph/2 < 0 || sy + ph/2 > H) continue;
 
     if (!overlaps(sx, sy)) {
       slots.push({ sx, sy, font });
@@ -98,22 +109,18 @@ function buildSlots() {
 }
 
 function setup() {
-  const dpr  = window.devicePixelRatio || 1;
+  // Use screen.width/height as fallback to avoid browser chrome issues
   const cssW = window.innerWidth;
   const cssH = window.innerHeight;
 
-  canvas.style.width  = cssW + 'px';
-  canvas.style.height = cssH + 'px';
-  canvas.width  = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
-
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.scale(dpr, dpr);
+  // Set canvas pixel size = CSS size (no dpr scaling — avoids miscalculation)
+  canvas.width  = cssW;
+  canvas.height = cssH;
 
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, cssW, cssH);
 
-  buildSlots();
+  buildSlots(cssW, cssH);
   revealed = 0;
   lastTime = 0;
 

@@ -36,39 +36,44 @@ const INTERVAL_MS = 80;
 function buildSlots() {
   slots = [];
 
-  const W = canvas.width;
-  const H = canvas.height;
+  // Use CSS pixels (already scaled by dpr above)
+  const W = canvas.width   / (window.devicePixelRatio || 1);
+  const H = canvas.height  / (window.devicePixelRatio || 1);
 
-  // Para tela de celular (portrait): usar largura como fator limitante
-  const isPortrait = H > W;
-  // Coração raw: width ≈ 32 units, height ≈ 20.8 units
-  const rawW = 32;
-  const rawH = 20.8;
-
-  let scale;
-  if (isPortrait) {
-    // Limita pela largura: ocupa 88% da largura
-    const scaleByW = (W * 0.88) / rawW;
-    const scaleByH = (H * 0.72) / rawH;
-    scale = Math.min(scaleByW, scaleByH);
-  } else {
-    scale = (H * 0.72) / rawH;
+  // Find exact raw bounding box of the heart curve
+  let rawXMin=Infinity, rawXMax=-Infinity, rawYMin=Infinity, rawYMax=-Infinity;
+  const SURVEY = 4000;
+  for (let i = 0; i < SURVEY; i++) {
+    const t = (i / SURVEY) * 2 * Math.PI;
+    const x = heartX(t), y = heartY(t);
+    if (x < rawXMin) rawXMin = x;
+    if (x > rawXMax) rawXMax = x;
+    if (y < rawYMin) rawYMin = y;
+    if (y > rawYMax) rawYMax = y;
   }
+  const rawW = rawXMax - rawXMin; // ≈ 32
+  const rawH = rawYMax - rawYMin; // ≈ 20.8
 
-  const cx = W / 2;
-  const cy = H / 2 + 1.2 * scale;
-
-  // Font size proporcional ao scale
-  const fontSize = Math.max(9, Math.round(scale * 0.52));
+  // Font size fixed small — like reference
+  const fontSize = 11;
   const font = `${fontSize}px 'Courier New', monospace`;
-
   ctx.font = font;
   const pw = ctx.measureText(PHRASE).width;
-  const ph = fontSize * 1.3;
+  const ph = fontSize * 1.4;
+
+  // Scale so heart fits with padding on all sides
+  const padding = pw * 0.6; // at least half a phrase width of breathing room
+  const scaleX = (W - padding * 2) / rawW;
+  const scaleY = (H - ph * 4)      / rawH;
+  const scale  = Math.min(scaleX, scaleY);
+
+  // Center the heart exactly
+  const cx = W / 2 - ((rawXMin + rawXMax) / 2) * scale;
+  const cy = H / 2 + ((rawYMin + rawYMax) / 2) * scale;
+
+  // Collision boxes
   const hw = pw / 2 + 2;
   const hh = ph / 2 + 1;
-
-  const FINE = 8000;
   const placed = [];
 
   function overlaps(sx, sy) {
@@ -79,10 +84,12 @@ function buildSlots() {
     return false;
   }
 
+  const FINE = 10000;
   for (let i = 0; i < FINE; i++) {
     const t  = (i / FINE) * 2 * Math.PI;
     const sx = cx + heartX(t) * scale;
     const sy = cy - heartY(t) * scale;
+
     if (!overlaps(sx, sy)) {
       slots.push({ sx, sy, font });
       placed.push({ sx, sy, hw, hh });
@@ -91,8 +98,7 @@ function buildSlots() {
 }
 
 function setup() {
-  // Usar devicePixelRatio para telas retina/OLED de celular
-  const dpr = window.devicePixelRatio || 1;
+  const dpr  = window.devicePixelRatio || 1;
   const cssW = window.innerWidth;
   const cssH = window.innerHeight;
 
@@ -100,6 +106,8 @@ function setup() {
   canvas.style.height = cssH + 'px';
   canvas.width  = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.scale(dpr, dpr);
 
   ctx.fillStyle = '#000';
@@ -118,13 +126,11 @@ function tick(ts) {
 
   if (ts - lastTime >= INTERVAL_MS) {
     const { sx, sy, font } = slots[revealed];
-
     ctx.font         = font;
     ctx.fillStyle    = COLOR;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(PHRASE, sx, sy);
-
     revealed++;
     lastTime = ts;
   }

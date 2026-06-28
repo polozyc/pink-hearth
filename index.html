@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>I Love You</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -10,6 +10,7 @@
     width: 100%; height: 100%;
     background: #000;
     overflow: hidden;
+    touch-action: none;
   }
   canvas { display: block; }
 </style>
@@ -22,23 +23,48 @@ const ctx    = canvas.getContext('2d');
 
 const PHRASE = 'I love you';
 const COLOR  = '#ff5ca8';
-const FONT   = "11px 'Courier New', monospace";
-const FONT_H = 13;
 
 function heartX(t) { return 16 * Math.pow(Math.sin(t), 3); }
 function heartY(t) { return 13*Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t); }
 
-let W, H, scale, cx, cy;
 let slots    = [];
 let revealed = 0;
 let lastTime = 0;
-const INTERVAL_MS = 80; // ms entre cada "I love you" — ajuste aqui para mudar velocidade
+let animId   = null;
+const INTERVAL_MS = 80;
 
 function buildSlots() {
   slots = [];
-  ctx.font = FONT;
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // Para tela de celular (portrait): usar largura como fator limitante
+  const isPortrait = H > W;
+  // Coração raw: width ≈ 32 units, height ≈ 20.8 units
+  const rawW = 32;
+  const rawH = 20.8;
+
+  let scale;
+  if (isPortrait) {
+    // Limita pela largura: ocupa 88% da largura
+    const scaleByW = (W * 0.88) / rawW;
+    const scaleByH = (H * 0.72) / rawH;
+    scale = Math.min(scaleByW, scaleByH);
+  } else {
+    scale = (H * 0.72) / rawH;
+  }
+
+  const cx = W / 2;
+  const cy = H / 2 + 1.2 * scale;
+
+  // Font size proporcional ao scale
+  const fontSize = Math.max(9, Math.round(scale * 0.52));
+  const font = `${fontSize}px 'Courier New', monospace`;
+
+  ctx.font = font;
   const pw = ctx.measureText(PHRASE).width;
-  const ph = FONT_H;
+  const ph = fontSize * 1.3;
   const hw = pw / 2 + 2;
   const hh = ph / 2 + 1;
 
@@ -58,36 +84,42 @@ function buildSlots() {
     const sx = cx + heartX(t) * scale;
     const sy = cy - heartY(t) * scale;
     if (!overlaps(sx, sy)) {
-      slots.push({ sx, sy });
+      slots.push({ sx, sy, font });
       placed.push({ sx, sy, hw, hh });
     }
   }
 }
 
 function setup() {
-  W = canvas.width  = window.innerWidth;
-  H = canvas.height = window.innerHeight;
+  // Usar devicePixelRatio para telas retina/OLED de celular
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = window.innerWidth;
+  const cssH = window.innerHeight;
+
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.width  = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  ctx.scale(dpr, dpr);
 
   ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, W, H);
-
-  scale = (H * 0.70) / 20.8;
-  cx    = W / 2;
-  cy    = H / 2 + 1.2 * scale;
+  ctx.fillRect(0, 0, cssW, cssH);
 
   buildSlots();
   revealed = 0;
   lastTime = 0;
-  requestAnimationFrame(tick);
+
+  if (animId) cancelAnimationFrame(animId);
+  animId = requestAnimationFrame(tick);
 }
 
 function tick(ts) {
   if (revealed >= slots.length) return;
 
   if (ts - lastTime >= INTERVAL_MS) {
-    const { sx, sy } = slots[revealed];
+    const { sx, sy, font } = slots[revealed];
 
-    ctx.font         = FONT;
+    ctx.font         = font;
     ctx.fillStyle    = COLOR;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
@@ -97,7 +129,7 @@ function tick(ts) {
     lastTime = ts;
   }
 
-  requestAnimationFrame(tick);
+  animId = requestAnimationFrame(tick);
 }
 
 window.addEventListener('resize', setup);

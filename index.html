@@ -7,19 +7,12 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh;
+    width: 100vw; height: 100vh;
     background: #000;
     overflow: hidden;
     touch-action: none;
   }
-  canvas {
-    display: block;
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh;
-  }
+  canvas { display: block; }
 </style>
 </head>
 <body>
@@ -30,118 +23,76 @@ const ctx    = canvas.getContext('2d');
 
 const PHRASE = 'I love you';
 const COLOR  = '#ff5ca8';
+const FONT   = "11px 'Courier New', monospace";
 
 function heartX(t) { return 16 * Math.pow(Math.sin(t), 3); }
 function heartY(t) { return 13*Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t); }
 
-// Exact raw bounding box (pre-calculated)
-// rawX: -16 to +16  → rawW = 32
-// rawY: -8.6588 to +12.3176  → rawH = 20.9764
-// rawCX = 0, rawCY = (12.3176 + (-8.6588)) / 2 = 1.8294
-const RAW_X_MIN = -16;
-const RAW_X_MAX =  16;
-const RAW_Y_MIN = -8.6588;
-const RAW_Y_MAX =  12.3176;
-const RAW_CX    = 0;
-const RAW_CY    = (RAW_Y_MAX + RAW_Y_MIN) / 2; // 1.8294
+// Exact raw bounds
+const RAW_W  = 32;      // x: -16 to +16
+const RAW_H  = 20.98;   // y: -8.66 to +12.32
+const RAW_CY = 1.83;    // vertical center of heart in raw coords
 
-let slots    = [];
-let revealed = 0;
-let lastTime = 0;
-let animId   = null;
+let slots = [], revealed = 0, lastTime = 0, animId = null;
 const INTERVAL_MS = 80;
 
 function buildSlots(W, H) {
   slots = [];
+  ctx.font = FONT;
+  const pw = ctx.measureText(PHRASE).width;
+  const ph = 15;
 
-  const FONT_SIZE = 11;
-  const font = `${FONT_SIZE}px 'Courier New', monospace`;
+  // Use only 75% of screen so heart is smaller and never clips
+  const scale = Math.min((W * 0.75) / RAW_W, (H * 0.75) / RAW_H);
 
-  ctx.font = font;
-  const pw = ctx.measureText(PHRASE).width; // ~66px at 11px
-  const ph = FONT_SIZE * 1.5;
+  const cx = W / 2;
+  const cy = H / 2 + RAW_CY * scale;
 
-  // Margins: enough so text at the very edge doesn't clip
-  const marginX = pw / 2 + 4;
-  const marginY = ph / 2 + 4;
-
-  const availW = W - marginX * 2;
-  const availH = H - marginY * 2;
-
-  // Scale to fit heart entirely inside available area
-  const rawW = RAW_X_MAX - RAW_X_MIN; // 32
-  const rawH = RAW_Y_MAX - RAW_Y_MIN; // ~20.98
-
-  const scale = Math.min(availW / rawW, availH / rawH);
-
-  // Screen center maps to raw center of heart
-  const cx = W / 2 - RAW_CX * scale;         // = W/2 (since RAW_CX=0)
-  const cy = H / 2 + RAW_CY * scale;         // shift down by raw center offset
-
-  // Collision detection
-  const hw = pw / 2 + 1;
-  const hh = ph / 2 + 1;
+  const hw = pw / 2 + 2, hh = ph / 2 + 1;
   const placed = [];
 
   function overlaps(sx, sy) {
-    for (const p of placed) {
-      if (Math.abs(sx - p.sx) < hw + p.hw &&
-          Math.abs(sy - p.sy) < hh + p.hh) return true;
-    }
+    for (const p of placed)
+      if (Math.abs(sx - p.sx) < hw + p.hw && Math.abs(sy - p.sy) < hh + p.hh) return true;
     return false;
   }
 
-  const FINE = 12000;
-  for (let i = 0; i < FINE; i++) {
-    const t  = (i / FINE) * 2 * Math.PI;
+  for (let i = 0; i < 12000; i++) {
+    const t  = (i / 12000) * 2 * Math.PI;
     const sx = cx + heartX(t) * scale;
     const sy = cy - heartY(t) * scale;
-
-    // Safety: never place outside canvas
-    if (sx - pw/2 < 0 || sx + pw/2 > W) continue;
-    if (sy - ph/2 < 0 || sy + ph/2 > H) continue;
-
+    if (sx < pw/2 + 2 || sx > W - pw/2 - 2) continue;
+    if (sy < ph/2 + 2 || sy > H - ph/2 - 2) continue;
     if (!overlaps(sx, sy)) {
-      slots.push({ sx, sy, font });
+      slots.push({ sx, sy });
       placed.push({ sx, sy, hw, hh });
     }
   }
 }
 
 function setup() {
-  // Use screen.width/height as fallback to avoid browser chrome issues
-  const cssW = window.innerWidth;
-  const cssH = window.innerHeight;
-
-  // Set canvas pixel size = CSS size (no dpr scaling — avoids miscalculation)
-  canvas.width  = cssW;
-  canvas.height = cssH;
-
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
   ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, cssW, cssH);
-
-  buildSlots(cssW, cssH);
-  revealed = 0;
-  lastTime = 0;
-
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  buildSlots(canvas.width, canvas.height);
+  revealed = 0; lastTime = 0;
   if (animId) cancelAnimationFrame(animId);
   animId = requestAnimationFrame(tick);
 }
 
 function tick(ts) {
   if (revealed >= slots.length) return;
-
   if (ts - lastTime >= INTERVAL_MS) {
-    const { sx, sy, font } = slots[revealed];
-    ctx.font         = font;
-    ctx.fillStyle    = COLOR;
-    ctx.textAlign    = 'center';
+    const { sx, sy } = slots[revealed];
+    ctx.font = FONT;
+    ctx.fillStyle = COLOR;
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(PHRASE, sx, sy);
     revealed++;
     lastTime = ts;
   }
-
   animId = requestAnimationFrame(tick);
 }
 
